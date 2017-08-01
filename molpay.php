@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: Gravity Forms MolPay Standard Add-On
+Plugin Name: Molpay For Gravity Forms
 Plugin URI: http://www.gravityforms.com
 Description: Integrates Gravity Forms with Molpay.
 Version: 1.0
