@@ -12,7 +12,7 @@ class GFMolPay extends GFPaymentAddOn {
 	protected $_path = 'gravityformsmolpay/molpay.php';
 	protected $_full_path = __FILE__;
 	protected $_url = 'http://www.gravityforms.com';
-	protected $_title = 'Gravity Forms MolPay Standard Add-On';
+	protected $_title = 'MolPay For Gravity Forms';
 	protected $_short_title = 'MolPay';
 	protected $_supports_callbacks = true;
 	private $production_url = 'https://www.onlinepayment.com.my/MOLPay/pay/'; //add merchant id, payment channel and query strings at the end
