@@ -178,13 +178,17 @@ class GFMolPay extends GFPaymentAddOn {
 		}
 
 		// update payment status to processing
+
 		GFAPI::update_entry_property( $entry['id'], 'payment_status', 'Processing' );
 		$url = '';
 		$vcode_hash = '';
+		$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
 		$amount = rgar( $submission_data, 'payment_amount' );
 		$order_id = rgar( $entry, 'id' );
-		$url .= "&amount={$amount}&orderid={$order_id}";
 
+		//set cancel url
+		$cancel_url = !empty($feed['meta']['cancelUrl']) ? "&cancelurl=" . urlencode($feed['meta']['cancelUrl']) : '';
+		$url .= "?amount={$amount}&orderid={$order_id}";
 		$customer_details = array(
 			array( 'name' => 'bill_name', 'meta_name' => 'billingInformation_fullName'	),
 			array( 'name' => 'bill_mobile', 'meta_name' => 'billingInformation_phoneNum'	),
@@ -220,18 +224,23 @@ class GFMolPay extends GFPaymentAddOn {
 
 		}
 
+		$bill_desc = get_bloginfo() . ' ' . $submission_data['line_items'][0]['name']; //take first product only for description purposes
+		$bill_description = '&bill_desc=' . urlencode($bill_desc);
+		$url .= $bill_description . $cancel_url;
 		//generate vcode_hash
 
-		$vcode_hash = md5($amount . $feed[''] . $order_id . $feed['molpayVCode'])
+		$vcode_hash = md5($amount . $merchant_id . $order_id . $feed['meta']['molpayVCode']);
+		$url .= "&vcode={$vcode_hash}";
 
+		//combine production url and the rest. Index maybe can use switch for other forms of payment. Index returns all payment channels
+
+		$url = $this->production_url . $merchant_id . '/index.php' . $url;
 
 		//end generate vcode_hash
-		// print_r($feed);
-		// print_r($submission_data);
-		// print_r($entry);
-		// print_r($form);
-		print_r($url);
 
+		$this->log_debug( __METHOD__ . "(): Sending to MolPay: {$url}" );
+
+		return $url;
 	}
 
 	public function init_admin() {
