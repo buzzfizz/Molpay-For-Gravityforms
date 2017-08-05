@@ -185,6 +185,8 @@ class GFMolPay extends GFPaymentAddOn {
 		$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
 		$amount = rgar( $submission_data, 'payment_amount' );
 		$order_id = rgar( $entry, 'id' );
+		$return_url = '&returnurl=' . urlencode( $this->return_url( $form['id'], $entry['id'] ) );
+
 
 		//set cancel url
 		$cancel_url = !empty($feed['meta']['cancelUrl']) ? "&cancelurl=" . urlencode($feed['meta']['cancelUrl']) : '';
@@ -226,7 +228,7 @@ class GFMolPay extends GFPaymentAddOn {
 
 		$bill_desc = get_bloginfo() . ' ' . $submission_data['line_items'][0]['name']; //take first product only for description purposes
 		$bill_description = '&bill_desc=' . urlencode($bill_desc);
-		$url .= $bill_description . $cancel_url;
+		$url .= $bill_description . $return_url . $cancel_url;
 		//generate vcode_hash
 
 		$vcode_hash = md5($amount . $merchant_id . $order_id . $feed['meta']['molpayVCode']);
@@ -239,8 +241,74 @@ class GFMolPay extends GFPaymentAddOn {
 		//end generate vcode_hash
 
 		$this->log_debug( __METHOD__ . "(): Sending to MolPay: {$url}" );
+		$invoice_id = apply_filters( 'gform_paypal_invoice', '', $form, $entry );
+		print_r($invoice_id);
+		// return $url;
+	}
 
-		return $url;
+	public function return_url( $form_id, $lead_id ) {
+		$pageURL = GFCommon::is_ssl() ? 'https://' : 'http://';
+
+		$server_port = apply_filters( 'gform_molpay_return_url_port', $_SERVER['SERVER_PORT'] );
+
+		if ( $server_port != '80' ) {
+			$pageURL .= $_SERVER['SERVER_NAME'] . ':' . $server_port . $_SERVER['REQUEST_URI'];
+		} else {
+			$pageURL .= $_SERVER['SERVER_NAME'] . $_SERVER['REQUEST_URI'];
+		}
+
+		$ids_query = "ids={$form_id}|{$lead_id}";
+		$ids_query .= '&hash=' . wp_hash( $ids_query );
+
+		$url = add_query_arg( 'gf_molpay_return', base64_encode( $ids_query ), $pageURL );
+
+		$query = 'gf_molpay_return=' . base64_encode( $ids_query );
+		/**
+		 * Filters molpay's return URL, which is the URL that users will be sent to after completing the payment on molpay's site.
+		 * Useful when URL isn't created correctly (could happen on some server configurations using PROXY servers).
+		 *
+		 * @since 2.4.5
+		 *
+		 * @param string  $url 	The URL to be filtered.
+		 * @param int $form_id	The ID of the form being submitted.
+		 * @param int $entry_id	The ID of the entry that was just created.
+		 * @param string $query	The query string portion of the URL.
+		 */
+		return apply_filters( 'gform_molpay_return_url', $url, $form_id, $lead_id, $query  );
+
+	}
+
+	public static function maybe_thankyou_page() {
+		$instance = self::get_instance();
+
+		if ( ! $instance->is_gravityforms_supported() ) {
+			return;
+		}
+
+		if ( $str = rgget( 'gf_molpay_return' ) ) {
+			$str = base64_decode( $str );
+
+			parse_str( $str, $query );
+			if ( wp_hash( 'ids=' . $query['ids'] ) == $query['hash'] ) {
+				list( $form_id, $lead_id ) = explode( '|', $query['ids'] );
+
+				$form = GFAPI::get_form( $form_id );
+				$lead = GFAPI::get_entry( $lead_id );
+
+				if ( ! class_exists( 'GFFormDisplay' ) ) {
+					require_once( GFCommon::get_base_path() . '/form_display.php' );
+				}
+
+				$confirmation = GFFormDisplay::handle_confirmation( $form, $lead, false );
+
+				if ( is_array( $confirmation ) && isset( $confirmation['redirect'] ) ) {
+					header( "Location: {$confirmation['redirect']}" );
+					exit;
+				}
+
+				GFFormDisplay::$submission[ $form_id ] = array( 'is_confirmation' => true, 'confirmation_message' => $confirmation, 'form' => $form, 'lead' => $lead );
+			}
+		}
 	}
 
 	public function init_admin() {
@@ -255,6 +323,121 @@ class GFMolPay extends GFPaymentAddOn {
 		add_action( 'gform_after_update_entry', array( $this, 'admin_update_payment' ), 4, 2 );
 
 //		add_filter( 'gform_addon_navigation', array( $this, 'maybe_create_menu' ) );
+	}
+
+	public function delay_post( $is_disabled, $form, $entry ) {
+
+		$feed            = $this->get_payment_feed( $entry );
+		$submission_data = $this->get_submission_data( $feed, $form, $entry );
+
+		if ( ! $feed || empty( $submission_data['payment_amount'] ) ) {
+			return $is_disabled;
+		}
+
+		return ! rgempty( 'delayPost', $feed['meta'] );
+	}
+
+	public function delay_notification( $is_disabled, $notification, $form, $entry ) {
+		if ( rgar( $notification, 'event' ) != 'form_submission' ) {
+			return $is_disabled;
+		}
+
+		$feed            = $this->get_payment_feed( $entry );
+		$submission_data = $this->get_submission_data( $feed, $form, $entry );
+
+		if ( ! $feed || empty( $submission_data['payment_amount'] ) ) {
+			return $is_disabled;
+		}
+
+		$selected_notifications = is_array( rgar( $feed['meta'], 'selectedNotifications' ) ) ? rgar( $feed['meta'], 'selectedNotifications' ) : array();
+
+		return isset( $feed['meta']['delayNotification'] ) && in_array( $notification['id'], $selected_notifications ) ? true : $is_disabled;
+	}
+
+
+	//------- PROCESSING molpay IPN (Callback) -----------//
+
+	public function callback() {
+
+		if ( ! $this->is_gravityforms_supported() ) {
+			return false;
+		}
+
+		$this->log_debug( __METHOD__ . '(): IPN request received. Starting to process => ' . print_r( $_POST, true ) );
+
+		// Valid IPN requests must have a custom field
+		$custom_field = rgpost( 'custom' );
+		if ( empty( $custom_field ) ) {
+			$this->log_error( __METHOD__ . '(): IPN request does not have a custom field, so it was not created by Gravity Forms. Aborting.' );
+
+			return false;
+		}
+
+
+		//------- Send request to molpay and verify it has not been spoofed ---------------------//
+		$is_verified = $this->verify_molpay_ipn();
+		if ( is_wp_error( $is_verified ) ) {
+			$this->log_error( __METHOD__ . '(): IPN verification failed with an error. Aborting with a 500 error so that IPN is resent.' );
+
+			return new WP_Error( 'IPNVerificationError', 'There was an error when verifying the IPN message with molpay', array( 'status_header' => 500 ) );
+		} elseif ( ! $is_verified ) {
+			$this->log_error( __METHOD__ . '(): IPN request could not be verified by molpay. Aborting.' );
+
+			return false;
+		}
+
+		$this->log_debug( __METHOD__ . '(): IPN message successfully verified by molpay' );
+
+
+		//------ Getting entry related to this IPN ----------------------------------------------//
+		$entry = $this->get_entry( $custom_field );
+
+		//Ignore orphan IPN messages (ones without an entry)
+		if ( ! $entry ) {
+			$this->log_error( __METHOD__ . '(): Entry could not be found. Aborting.' );
+
+			return false;
+		}
+		$this->log_debug( __METHOD__ . '(): Entry has been found => ' . print_r( $entry, true ) );
+
+		if ( $entry['status'] == 'spam' ) {
+			$this->log_error( __METHOD__ . '(): Entry is marked as spam. Aborting.' );
+
+			return false;
+		}
+
+
+		//------ Getting feed related to this IPN ------------------------------------------//
+		$feed = $this->get_payment_feed( $entry );
+
+		//Ignore IPN messages from forms that are no longer configured with the molpay add-on
+		if ( ! $feed || ! rgar( $feed, 'is_active' ) ) {
+			$this->log_error( __METHOD__ . "(): Form no longer is configured with molpay Addon. Form ID: {$entry['form_id']}. Aborting." );
+
+			return false;
+		}
+		$this->log_debug( __METHOD__ . "(): Form {$entry['form_id']} is properly configured." );
+
+
+		//----- Making sure this IPN can be processed -------------------------------------//
+		if ( ! $this->can_process_ipn( $feed, $entry ) ) {
+			$this->log_debug( __METHOD__ . '(): IPN cannot be processed.' );
+
+			return false;
+		}
+
+
+		//----- Processing IPN ------------------------------------------------------------//
+		$this->log_debug( __METHOD__ . '(): Processing IPN...' );
+		$action = $this->process_ipn( $feed, $entry, rgpost( 'payment_status' ), rgpost( 'txn_type' ), rgpost( 'txn_id' ), rgpost( 'parent_txn_id' ), rgpost( 'subscr_id' ), rgpost( 'mc_gross' ), rgpost( 'pending_reason' ), rgpost( 'reason_code' ), rgpost( 'mc_amount3' ) );
+		$this->log_debug( __METHOD__ . '(): IPN processing complete.' );
+
+		if ( rgempty( 'entry_id', $action ) ) {
+			return false;
+		}
+
+		return $action;
+
 	}
 
 	public function get_payment_feed( $entry, $form = false ) {
@@ -277,6 +460,50 @@ class GFMolPay extends GFPaymentAddOn {
 		$feed    = $this->get_feed( $feed_id );
 
 		return ! empty( $feed ) ? $feed : false;
+	}
+
+	public function post_callback( $callback_action, $callback_result ) {
+		if ( is_wp_error( $callback_action ) || ! $callback_action ) {
+			return false;
+		}
+
+		//run the necessary hooks
+		$entry          = GFAPI::get_entry( $callback_action['entry_id'] );
+		$feed           = $this->get_payment_feed( $entry );
+		$transaction_id = rgar( $callback_action, 'transaction_id' );
+		$amount         = rgar( $callback_action, 'amount' );
+		$subscriber_id  = rgar( $callback_action, 'subscriber_id' );
+		$pending_reason = rgpost( 'pending_reason' );
+		$reason         = rgpost( 'reason_code' );
+		$status         = rgpost( 'payment_status' );
+		$txn_type       = rgpost( 'txn_type' );
+		$parent_txn_id  = rgpost( 'parent_txn_id' );
+
+		//run gform_molpay_fulfillment only in certain conditions
+		if ( rgar( $callback_action, 'ready_to_fulfill' ) && ! rgar( $callback_action, 'abort_callback' ) ) {
+			$this->fulfill_order( $entry, $transaction_id, $amount, $feed );
+		} else {
+			if ( rgar( $callback_action, 'abort_callback' ) ) {
+				$this->log_debug( __METHOD__ . '(): Callback processing was aborted. Not fulfilling entry.' );
+			} else {
+				$this->log_debug( __METHOD__ . '(): Entry is already fulfilled or not ready to be fulfilled, not running gform_molpay_fulfillment hook.' );
+			}
+		}
+
+		do_action( 'gform_post_payment_status', $feed, $entry, $status, $transaction_id, $subscriber_id, $amount, $pending_reason, $reason );
+		if ( has_filter( 'gform_post_payment_status' ) ) {
+			$this->log_debug( __METHOD__ . '(): Executing functions hooked to gform_post_payment_status.' );
+		}
+
+		do_action( 'gform_molpay_ipn_' . $txn_type, $entry, $feed, $status, $txn_type, $transaction_id, $parent_txn_id, $subscriber_id, $amount, $pending_reason, $reason );
+		if ( has_filter( 'gform_molpay_ipn_' . $txn_type ) ) {
+			$this->log_debug( __METHOD__ . "(): Executing functions hooked to gform_molpay_ipn_{$txn_type}." );
+		}
+
+		do_action( 'gform_molpay_post_ipn', $_POST, $entry, $feed, false );
+		if ( has_filter( 'gform_molpay_post_ipn' ) ) {
+			$this->log_debug( __METHOD__ . '(): Executing functions hooked to gform_molpay_post_ipn.' );
+		}
 	}
 
 	public function admin_edit_payment_status( $payment_status, $form, $entry ) {
