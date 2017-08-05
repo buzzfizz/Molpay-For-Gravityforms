@@ -179,17 +179,21 @@ class GFMolPay extends GFPaymentAddOn {
 
 		// update payment status to processing
 		GFAPI::update_entry_property( $entry['id'], 'payment_status', 'Processing' );
-		$cus_query_string = '';
-		$order_id = $entry['id'];
+		$url = '';
+		$vcode_hash = '';
+		$amount = rgar( $submission_data, 'payment_amount' );
+		$order_id = rgar( $entry, 'id' );
+		$url .= "&amount={$amount}&orderid={$order_id}";
+
 		$customer_details = array(
 			array( 'name' => 'bill_name', 'meta_name' => 'billingInformation_fullName'	),
 			array( 'name' => 'bill_mobile', 'meta_name' => 'billingInformation_phoneNum'	),
 			array( 'name' => 'bill_email', 'meta_name' => 'billingInformation_email'	),
-			array( 'name' => 'address', 'meta_name' => 'billingInformation_address'	),
-			array( 'name' => 'address2', 'meta_name' => 'billingInformation_address2'	),
-			array( 'name' => 'city', 'meta_name' => 'billingInformation_city'	),
-			array( 'name' => 'state', 'meta_name' => 'billingInformation_state'	),
-			array( 'name' => 'zip', 'meta_name' => 'billingInformation_zip'	),
+			// array( 'name' => 'address', 'meta_name' => 'billingInformation_address'	),
+			// array( 'name' => 'address2', 'meta_name' => 'billingInformation_address2'	),
+			// array( 'name' => 'city', 'meta_name' => 'billingInformation_city'	),
+			// array( 'name' => 'state', 'meta_name' => 'billingInformation_state'	),
+			// array( 'name' => 'zip', 'meta_name' => 'billingInformation_zip'	),
 			array( 'name' => 'country', 'meta_name' => 'billingInformation_country'	)
 		);
 
@@ -210,13 +214,23 @@ class GFMolPay extends GFPaymentAddOn {
 
 			if ( ! empty( $value ) ) {
 
-				$cus_query_string .= "&{$field['name']}=" . urlencode( $value );
+				$url .= "&{$field['name']}=" . urlencode( $value );
 
 			}
 
 		}
 
-		print_r($cus_query_string);
+		//generate vcode_hash
+
+		$vcode_hash = md5($amount . $feed[''] . $order_id . $feed['molpayVCode'])
+
+
+		//end generate vcode_hash
+		// print_r($feed);
+		// print_r($submission_data);
+		// print_r($entry);
+		// print_r($form);
+		print_r($url);
 
 	}
 
