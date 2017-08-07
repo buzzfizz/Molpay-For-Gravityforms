@@ -241,9 +241,9 @@ class GFMolPay extends GFPaymentAddOn {
 		//end generate vcode_hash
 
 		$this->log_debug( __METHOD__ . "(): Sending to MolPay: {$url}" );
-		$invoice_id = apply_filters( 'gform_paypal_invoice', '', $form, $entry );
-		print_r($invoice_id);
-		// return $url;
+		// $invoice_id = apply_filters( 'gform_paypal_invoice', '', $form, $entry );
+		// print_r($invoice_id);
+		return $url;
 	}
 
 	public function return_url( $form_id, $lead_id ) {
@@ -363,6 +363,9 @@ class GFMolPay extends GFPaymentAddOn {
 			return false;
 		}
 
+		$this->log_debug($_POST);
+		$this->log_debug($_GET);
+
 		$this->log_debug( __METHOD__ . '(): IPN request received. Starting to process => ' . print_r( $_POST, true ) );
 
 		// Valid IPN requests must have a custom field
@@ -466,6 +469,12 @@ class GFMolPay extends GFPaymentAddOn {
 		if ( is_wp_error( $callback_action ) || ! $callback_action ) {
 			return false;
 		}
+
+		$this->log_debug($_POST);
+		$this->log_debug($_GET);
+
+		$this->log_debug(__METHOD__ . $callback_action);
+		$this->log_debug(__METHOD__ . $callback_result);
 
 		//run the necessary hooks
 		$entry          = GFAPI::get_entry( $callback_action['entry_id'] );
