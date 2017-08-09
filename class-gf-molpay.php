@@ -223,7 +223,6 @@ class GFMolPay extends GFPaymentAddOn {
 			$order_id = rgar( $entry, 'id' );
 			$return_url = '&returnurl=' . urlencode( $this->return_url( $form['id'], $entry['id'] ) );
 			$callback_url = '&callbackurl=' . urlencode ( get_bloginfo('url') . '/?page=gf_molpay_ipn' );
-			$noti_url = '&callbackurl=' . urlencode ( get_bloginfo('url') . '/?page=gf_molpay_ipn' );
 			
 			//set cancel url
 			$cancel_url = !empty($feed['meta']['cancelUrl']) ? "&cancelurl=" . urlencode($feed['meta']['cancelUrl']) : '';
@@ -258,7 +257,7 @@ class GFMolPay extends GFPaymentAddOn {
 
 			$bill_desc = get_bloginfo() . ' ' . $submission_data['line_items'][0]['name']; //take first product only for description purposes
 			$bill_description = '&bill_desc=' . urlencode($bill_desc);
-			$url .= $bill_description . $return_url . $cancel_url;
+			$url .= $bill_description . $return_url . $callback_url . $cancel_url;
 			//generate vcode_hash
 
 			$vcode_hash = md5($amount . $merchant_id . $order_id . $feed['meta']['molpayVCode']);
@@ -399,9 +398,13 @@ class GFMolPay extends GFPaymentAddOn {
 			$this->log_debug( __METHOD__ . '(): IPN request received. Starting to process => ' . print_r( $_POST, true ) );
 			// die();
 			//------ Getting feed related to this IPN ------------------------------------------//
-			$entry = GFAPI::get_entry( $_POST['orderid'] ); // use back order id return from molpay
+			$entry = GFAPI::get_entry( rgpost('orderid') ); // use back order id return from molpay
+
+			$this->log_debug( __METHOD__ . '(): Entry =>' . print_r($entry, true) );						
 
 			$feed = $this->get_payment_feed( $entry );
+
+			$this->log_debug( __METHOD__ . '(): Feed =>' . print_r($feed, true) );			
 			
 			$this->log_debug( __METHOD__ . "(): Form {$entry['form_id']} is properly configured." );
 
@@ -420,6 +423,7 @@ class GFMolPay extends GFPaymentAddOn {
 				rgpost( 'appcode' ),
 				rgpost( 'skey' )
 			);
+			$this->log_debug( __METHOD__ . '(): Action =>' . print_r($action, true));
 
 			$this->log_debug( __METHOD__ . '(): IPN processing complete.' );
 
@@ -510,23 +514,23 @@ class GFMolPay extends GFPaymentAddOn {
 
 			//status 00 = success, 11 = failed, 22 = pending 
 
-			if( $status === 00 ){ //success
+			if( $status == '00' ){ //success
 				$action['id']               = $transaction_id . '_' . $status;
 				$action['type']             = 'complete_payment';
 				$action['transaction_id']   = $transaction_id;
 				$action['amount']           = $amount;
 				$action['entry_id']         = $entry['id'];
-				$action['payment_date']     = $paydate;
+				$action['payment_date']     = gmdate( 'y-m-d H:i:s' );
 				$action['payment_method']	= 'MolPay';
 				$action['ready_to_fulfill'] = ! $entry['is_fulfilled'] ? true : false;
-
 				
-				//implement later
-				// if( ! $this->validate_skey( $skey ) ){
-					// $this->log_debug( __METHOD__ . '(): SKEY DOESNT MATCH' );
-					// $action['abort_callback'] = true;							
-				// }
+				$this->log_debug( __METHOD__ . "(): status 00. Result => " . print_r($action, true) );
 
+				//generate skey and compare with MOLPays response
+				if( ! $this->validate_skey( $config, $entry ) ){
+					$this->log_debug( __METHOD__ . '(): SKEY DOESNT MATCH' );
+					$action['abort_callback'] = true;							
+				}
 
 				if ( ! $this->is_valid_initial_payment_amount( $entry['id'], $amount ) ){
 					//create note and transaction
@@ -540,7 +544,7 @@ class GFMolPay extends GFPaymentAddOn {
 				return $action;
 			}
 			
-			if( $status === 11 ){ //fail
+			if( $status == '11' ){ //fail
 				$action['id']             = $transaction_id . '_' . $status;
 				$action['type']           = 'fail_payment';
 				$action['transaction_id'] = $transaction_id;
@@ -550,7 +554,7 @@ class GFMolPay extends GFPaymentAddOn {
 				return $action;
 			}
 
-			if( $status === 22) { //pending
+			if( $status === '22') { //pending
 				$action['id']             = $transaction_id . '_' . $status;
 				$action['type']           = 'add_pending_payment';
 				$action['transaction_id'] = $transaction_id;
@@ -564,7 +568,18 @@ class GFMolPay extends GFPaymentAddOn {
 			}
 		}
 
-		private function validate_skey($skey){
+		//generate and validate skey return from molpay
+		private function validate_skey($config, $entry, $status, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey){
+
+			
+			$key0 = md5( $transaction_id . $orderid . $status . $merchant . $amount . $currency );
+			$key1 = md5( $paydate . $this->get_plugin_setting('gf_molpay_merchant_id') . $key0 . $appcode . $feed['meta']['molpayVCode'] );
+
+			if($skey === $key1){
+				return true;
+			}else{
+				return false; 
+			}
 
 		}
 
