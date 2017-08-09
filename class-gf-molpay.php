@@ -222,7 +222,9 @@ class GFMolPay extends GFPaymentAddOn {
 			$amount = rgar( $submission_data, 'payment_amount' );
 			$order_id = rgar( $entry, 'id' );
 			$return_url = '&returnurl=' . urlencode( $this->return_url( $form['id'], $entry['id'] ) );
-
+			$callback_url = '&callbackurl=' . urlencode ( get_bloginfo('url') . '/?page=gf_molpay_ipn' );
+			$noti_url = '&callbackurl=' . urlencode ( get_bloginfo('url') . '/?page=gf_molpay_ipn' );
+			
 			//set cancel url
 			$cancel_url = !empty($feed['meta']['cancelUrl']) ? "&cancelurl=" . urlencode($feed['meta']['cancelUrl']) : '';
 			$url .= "?amount={$amount}&orderid={$order_id}";
@@ -269,8 +271,6 @@ class GFMolPay extends GFPaymentAddOn {
 			//end generate vcode_hash
 
 			$this->log_debug( __METHOD__ . "(): Sending to MolPay: {$url}" );
-			// $invoice_id = apply_filters( 'gform_paypal_invoice', '', $form, $entry );
-			// print_r($invoice_id);
 			return $url;
 		}
 
@@ -394,12 +394,42 @@ class GFMolPay extends GFPaymentAddOn {
 		public function callback() {
 
 			if ( ! $this->is_gravityforms_supported() ) {
-				$this->log_debug( 'Process callback tak jadi' );
-
 				return false;
 			}
+			$this->log_debug( __METHOD__ . '(): IPN request received. Starting to process => ' . print_r( $_POST, true ) );
+			// die();
+			//------ Getting feed related to this IPN ------------------------------------------//
+			$entry = GFAPI::get_entry( $_POST['orderid'] ); // use back order id return from molpay
 
-			$this->log_debug( 'Process callback' );
+			$feed = $this->get_payment_feed( $entry );
+			
+			$this->log_debug( __METHOD__ . "(): Form {$entry['form_id']} is properly configured." );
+
+			//----- Processing IPN ------------------------------------------------------------//
+			$this->log_debug( __METHOD__ . '(): Processing IPN...' );
+
+			$action = $this->process_ipn( 
+				$feed,
+				$entry,
+				rgpost( 'status' ),
+				rgpost( 'tranID' ),
+				rgpost( 'amount' ),
+				rgpost( 'currency' ),
+				rgpost( 'paydate' ),
+				rgpost( 'orderid' ),
+				rgpost( 'appcode' ),
+				rgpost( 'skey' )
+			);
+
+			$this->log_debug( __METHOD__ . '(): IPN processing complete.' );
+
+			if ( rgempty( 'entry_id', $action ) ) {
+
+				return false;
+
+			}
+
+			return $action;
 
 		}
 
@@ -428,19 +458,114 @@ class GFMolPay extends GFPaymentAddOn {
 		public function post_callback( $callback_action, $callback_result ) {
 
 			if ( is_wp_error( $callback_action ) || ! $callback_action ) {
-				$this->log_debug( 'Process post_callback tak jadi' );
 				return false;
 			}
-
-			$this->log_debug('Process post_callback');
+			//run the necessary hooks
+			$entry          = GFAPI::get_entry( $callback_action['entry_id'] );
+			$feed           = $this->get_payment_feed( $entry );
+			$transaction_id = rgar( $callback_action, 'transaction_id' );
+			$amount         = rgar( $callback_action, 'amount' );
+			$subscriber_id  = rgar( $callback_action, 'subscriber_id' );
+			$pending_reason = rgpost( 'pending_reason' );
+			$reason         = rgpost( 'reason_code' );
+			$status         = rgpost( 'payment_status' );
+			$txn_type       = rgpost( 'txn_type' );
+			$parent_txn_id  = rgpost( 'parent_txn_id' );
+			//run gform_molpay_fulfillment only in certain conditions
+			if ( rgar( $callback_action, 'ready_to_fulfill' ) && ! rgar( $callback_action, 'abort_callback' ) ) {
+				$this->fulfill_order( $entry, $transaction_id, $amount, $feed );
+			} else {
+				if ( rgar( $callback_action, 'abort_callback' ) ) {
+					$this->log_debug( __METHOD__ . '(): Callback processing was aborted. Not fulfilling entry.' );
+				} else {
+					$this->log_debug( __METHOD__ . '(): Entry is already fulfilled or not ready to be fulfilled, not running gform_molpay_fulfillment hook.' );
+				}
+			}
+			do_action( 'gform_post_payment_status', $feed, $entry, $status, $transaction_id, $subscriber_id, $amount, $pending_reason, $reason );
+			if ( has_filter( 'gform_post_payment_status' ) ) {
+				$this->log_debug( __METHOD__ . '(): Executing functions hooked to gform_post_payment_status.' );
+			}
+			do_action( 'gform_molpay_ipn_' . $txn_type, $entry, $feed, $status, $txn_type, $transaction_id, $parent_txn_id, $subscriber_id, $amount, $pending_reason, $reason );
+			if ( has_filter( 'gform_molpay_ipn_' . $txn_type ) ) {
+				$this->log_debug( __METHOD__ . "(): Executing functions hooked to gform_molpay_ipn_{$txn_type}." );
+			}
+			do_action( 'gform_molpay_post_ipn', $_POST, $entry, $feed, false );
+			if ( has_filter( 'gform_molpay_post_ipn' ) ) {
+				$this->log_debug( __METHOD__ . '(): Executing functions hooked to gform_molpay_post_ipn.' );
+			}
 		}
 
-		public function is_callback_valid()
-		{
+		public function is_callback_valid() {
 			if (rgget('page') != 'gf_molpay_ipn') {
 					return false;
 			}
 			return true;
+		}
+
+		private function process_ipn( $config, $entry, $status, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey ) {
+
+
+			$this->log_debug( __METHOD__ . "(): Payment status: {$status} - Transaction ID: {$transaction_id} - Amount: {$amount} - Currency: {$currency} - Pay Date: {$paydate} - Order ID: {$orderid} - App Code: {$appcode} - SKEY: {$skey}" );
+			$action = array();
+
+			//status 00 = success, 11 = failed, 22 = pending 
+
+			if( $status === 00 ){ //success
+				$action['id']               = $transaction_id . '_' . $status;
+				$action['type']             = 'complete_payment';
+				$action['transaction_id']   = $transaction_id;
+				$action['amount']           = $amount;
+				$action['entry_id']         = $entry['id'];
+				$action['payment_date']     = $paydate;
+				$action['payment_method']	= 'MolPay';
+				$action['ready_to_fulfill'] = ! $entry['is_fulfilled'] ? true : false;
+
+				
+				//implement later
+				// if( ! $this->validate_skey( $skey ) ){
+					// $this->log_debug( __METHOD__ . '(): SKEY DOESNT MATCH' );
+					// $action['abort_callback'] = true;							
+				// }
+
+
+				if ( ! $this->is_valid_initial_payment_amount( $entry['id'], $amount ) ){
+					//create note and transaction
+					$this->log_debug( __METHOD__ . '(): Payment amount does not match product price. Entry will not be marked as Approved.' );
+					GFPaymentAddOn::add_note( $entry['id'], sprintf( __( 'Payment amount (%s) does not match product price. Entry will not be marked as Approved. Transaction ID: %s', 'gravityformsmolpay' ), GFCommon::to_money( $amount, $entry['currency'] ), $transaction_id ) );
+					GFPaymentAddOn::insert_transaction( $entry['id'], 'payment', $transaction_id, $amount );
+
+					$action['abort_callback'] = true;
+				}
+
+				return $action;
+			}
+			
+			if( $status === 11 ){ //fail
+				$action['id']             = $transaction_id . '_' . $status;
+				$action['type']           = 'fail_payment';
+				$action['transaction_id'] = $transaction_id;
+				$action['entry_id']       = $entry['id'];
+				$action['amount']         = $amount;
+
+				return $action;
+			}
+
+			if( $status === 22) { //pending
+				$action['id']             = $transaction_id . '_' . $status;
+				$action['type']           = 'add_pending_payment';
+				$action['transaction_id'] = $transaction_id;
+				$action['entry_id']       = $entry['id'];
+				$action['amount']         = $amount;
+				$action['entry_id']       = $entry['id'];
+				$amount_formatted         = GFCommon::to_money( $action['amount'], $entry['currency'] );
+				$action['note']           = sprintf( __( 'Payment is pending. Amount: %s. Transaction ID: %s. Reason: %s', 'gravityformsmolpay' ), $amount_formatted, $action['transaction_id'], $this->get_pending_reason( $pending_reason ) );
+
+				return $action;
+			}
+		}
+
+		private function validate_skey($skey){
+
 		}
 
 		public function ajax_dismiss_menu() {
