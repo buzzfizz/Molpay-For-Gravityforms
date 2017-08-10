@@ -18,7 +18,6 @@ class GFMolPay extends GFPaymentAddOn {
 	private $production_url = 'https://www.onlinepayment.com.my/MOLPay/pay/'; //add merchant id, payment channel and query strings at the end
 	private $sandbox_url = 'https://www.onlinepayment.com.my/MOLPay/pay/'; //add merchant id, payment channel and query strings at the end
 
-
 	// Members plugin integration
 	protected $_capabilities = array( 'gravityforms_molpay', 'gravityforms_molpay_uninstall' );
 
@@ -138,8 +137,6 @@ class GFMolPay extends GFPaymentAddOn {
 			$billing_fields = $billing_info['field_map'];
 			$add_full_name = true;
 			$add_phone_num = true;
-			//		$add_first_name = true;
-			//		$add_last_name  = true;
 			foreach ( $billing_fields as $mapping ) {
 				//add full name if it does not already exist in billing fields
 				if ( $mapping['name'] == 'fullName' ) {
@@ -178,13 +175,11 @@ class GFMolPay extends GFPaymentAddOn {
 		*
 		* @return bool
 		*/
-		public function option_choices()
-		{
+		public function option_choices() {
 			return false;
 		}
 
-		public function save_feed_settings($feed_id, $form_id, $settings)
-		{
+		public function save_feed_settings($feed_id, $form_id, $settings) {
 			//--------------------------------------------------------
 			//For backwards compatibility
 			$feed = $this->get_feed($feed_id);
@@ -206,9 +201,8 @@ class GFMolPay extends GFPaymentAddOn {
 			return parent::save_feed_settings($feed_id, $form_id, $settings);
 		}
 
-
-		public function redirect_url($feed, $submission_data, $form, $entry)
-		{
+		//REDIRECT TO MOLPAY
+		public function redirect_url($feed, $submission_data, $form, $entry) {
 			if ( ! rgempty( 'gf_molpay_return', $_GET ) ) {
 				return false;
 			}
@@ -218,9 +212,9 @@ class GFMolPay extends GFPaymentAddOn {
 			GFAPI::update_entry_property( $entry['id'], 'payment_status', 'Processing' );
 			$url = '';
 			$vcode_hash = '';
-			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
+			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id'); //merchant id from plugin settings. maybe store per feed?
 			$amount = rgar( $submission_data, 'payment_amount' );
-			$order_id = rgar( $entry, 'id' );
+			$order_id = rgar( $entry, 'id' ); //Use entry id as order id, maybe change to something else?
 			$return_url = '&returnurl=' . urlencode( $this->return_url( $form['id'], $entry['id'] ) );
 			$callback_url = '&callbackurl=' . urlencode ( get_bloginfo('url') . '/?page=gf_molpay_ipn' );
 			
@@ -228,15 +222,10 @@ class GFMolPay extends GFPaymentAddOn {
 			$cancel_url = !empty($feed['meta']['cancelUrl']) ? "&cancelurl=" . urlencode($feed['meta']['cancelUrl']) : '';
 			$url .= "?amount={$amount}&orderid={$order_id}";
 			$customer_details = array(
-				array( 'name' => 'bill_name', 'meta_name' => 'billingInformation_fullName'	),
-				array( 'name' => 'bill_mobile', 'meta_name' => 'billingInformation_phoneNum'	),
-				array( 'name' => 'bill_email', 'meta_name' => 'billingInformation_email'	),
-				// array( 'name' => 'address', 'meta_name' => 'billingInformation_address'	),
-				// array( 'name' => 'address2', 'meta_name' => 'billingInformation_address2'	),
-				// array( 'name' => 'city', 'meta_name' => 'billingInformation_city'	),
-				// array( 'name' => 'state', 'meta_name' => 'billingInformation_state'	),
-				// array( 'name' => 'zip', 'meta_name' => 'billingInformation_zip'	),
-				array( 'name' => 'country', 'meta_name' => 'billingInformation_country'	)
+				array( 'name' => 'bill_name', 'meta_name' => 'billingInformation_fullName' ),
+				array( 'name' => 'bill_mobile', 'meta_name' => 'billingInformation_phoneNum' ),
+				array( 'name' => 'bill_email', 'meta_name' => 'billingInformation_email' ),
+				array( 'name' => 'country', 'meta_name' => 'billingInformation_country' )
 			);
 
 			foreach ($customer_details as $field) {
@@ -354,8 +343,6 @@ class GFMolPay extends GFPaymentAddOn {
 			add_action( 'gform_payment_transaction_id', array( $this, 'admin_edit_payment_transaction_id' ), 3, 3 );
 			add_action( 'gform_payment_amount', array( $this, 'admin_edit_payment_amount' ), 3, 3 );
 			add_action( 'gform_after_update_entry', array( $this, 'admin_update_payment' ), 4, 2 );
-
-			//		add_filter( 'gform_addon_navigation', array( $this, 'maybe_create_menu' ) );
 		}
 
 		public function delay_post( $is_disabled, $form, $entry ) {
@@ -396,7 +383,7 @@ class GFMolPay extends GFPaymentAddOn {
 				return false;
 			}
 			$this->log_debug( __METHOD__ . '(): IPN request received. Starting to process => ' . print_r( $_POST, true ) );
-			// die();
+
 			//------ Getting feed related to this IPN ------------------------------------------//
 			$entry = GFAPI::get_entry( rgpost('orderid') ); // use back order id return from molpay
 
@@ -500,6 +487,26 @@ class GFMolPay extends GFPaymentAddOn {
 			}
 		}
 
+		public function modify_post($post_id, $action) {
+			$result = false;
+			if (!$post_id) {
+				return $result;
+			}
+			switch ($action) {
+				case 'draft':
+					$post = get_post($post_id);
+					$post->post_status = 'draft';
+					$result = wp_update_post($post);
+					$this->log_debug(__METHOD__ . "(): Set post (#{$post_id}) status to \"draft\".");
+					break;
+				case 'delete':
+					$result = wp_delete_post($post_id);
+					$this->log_debug(__METHOD__ . "(): Deleted post (#{$post_id}).");
+					break;
+			}
+			return $result;
+		}
+
 		public function is_callback_valid() {
 			if (rgget('page') != 'gf_molpay_ipn') {
 					return false;
@@ -508,7 +515,6 @@ class GFMolPay extends GFPaymentAddOn {
 		}
 
 		private function process_ipn( $config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey ) {
-
 
 			$this->log_debug( __METHOD__ . "(): Payment status: {$status} - Transaction ID: {$transaction_id} - Amount: {$amount} - Currency: {$currency} - Pay Date: {$paydate} - Order ID: {$orderid} - App Code: {$appcode} - SKEY: {$skey}" );
 			$action = array();
@@ -570,7 +576,7 @@ class GFMolPay extends GFPaymentAddOn {
 		}
 
 		//generate and validate skey return from molpay
-		private function validate_skey($config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey){
+		private function validate_skey($config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey) {
 
 			$vcode = $config['meta']['molpayVCode'];
 			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
@@ -583,17 +589,41 @@ class GFMolPay extends GFPaymentAddOn {
 
 			$this->log_debug(__METHOD__ . "Skey generated:{$key1}, Skey sent by MOLPay:{$skey}");
 
-			if($skey === $key1){
+			if($skey === $key1) {
+
 				return true;
-			}else{
+
+			} else {
+
 				return false; 
+
 			}
 
 		}
 
+		/**
+		* Add supported notification events.
+		*
+		* @param array $form The form currently being processed.
+		*
+		* @return array
+		*/
+		public function supported_notification_events($form) {
+			if (!$this->has_feed($form['id'])) {
+				return false;
+			}
+			return array(
+				'complete_payment' => esc_html__('Payment Completed', 'gravityformsmolpay'),
+				'refund_payment' => esc_html__('Payment Refunded', 'gravityformsmolpay'),
+				'fail_payment' => esc_html__('Payment Failed', 'gravityformsmolpay'),
+				'add_pending_payment' => esc_html__('Payment Pending', 'gravityformsmolpay'),
+				'void_authorization' => esc_html__('Authorization Voided', 'gravityformsmolpay')
+			);
+		}
+
 		public function ajax_dismiss_menu() {
 			$current_user = wp_get_current_user();
-			update_metadata('user', $current_user->ID, 'dismiss_billplz_menu', '1');
+			update_metadata('user', $current_user->ID, 'dismiss_molpay_menu', '1');
 		}
 
 		public function admin_edit_payment_status( $payment_status, $form, $entry ) {
