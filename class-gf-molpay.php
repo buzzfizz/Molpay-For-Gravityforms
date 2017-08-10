@@ -49,10 +49,22 @@ class GFMolPay extends GFPaymentAddOn {
 	}
 
 	public function plugin_settings_fields() {
+
+		$description = '
+			<p style="text-align: left;">' .
+			esc_html__( 'Gravity Forms requires IPN to be enabled on your MolPay account.', 'gravityformsmolpay' ) .
+			'</p>
+			<ul>
+				<li>' .  esc_html__( 'Navigate to your molpay merchant page', 'gravityformsmolpay' ) . '</li>' .
+				'<li>' . esc_html__( 'Enable IPN for Return, Callback and Notification URL', 'gravityformsmolpay' ) . '</li>' .
+				'<li>' . sprintf( esc_html__( 'Copy the following URL into Notification URL and Callback URL field: %s', 'gravityformsmolpay' ), '<strong>' . esc_url( add_query_arg( 'page', 'gf_molpay_ipn', get_bloginfo( 'url' ) . '/' ) ) . '</strong>' ) . '</li>' .
+			'</ul>
+			<br/>';
+
 		return array(
 			array(
 				'title'       => '',
-				'description' => 'Please update your Merchant ID below',
+				'description' => $description,
 				'fields'      => array(
 					array(
 						'name'    => 'gf_molpay_merchant_id',
