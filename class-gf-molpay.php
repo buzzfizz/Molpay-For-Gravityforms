@@ -415,6 +415,7 @@ class GFMolPay extends GFPaymentAddOn {
 				$feed,
 				$entry,
 				rgpost( 'status' ),
+				rgpost( 'domain' ),
 				rgpost( 'tranID' ),
 				rgpost( 'amount' ),
 				rgpost( 'currency' ),
@@ -506,7 +507,7 @@ class GFMolPay extends GFPaymentAddOn {
 			return true;
 		}
 
-		private function process_ipn( $config, $entry, $status, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey ) {
+		private function process_ipn( $config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey ) {
 
 
 			$this->log_debug( __METHOD__ . "(): Payment status: {$status} - Transaction ID: {$transaction_id} - Amount: {$amount} - Currency: {$currency} - Pay Date: {$paydate} - Order ID: {$orderid} - App Code: {$appcode} - SKEY: {$skey}" );
@@ -527,7 +528,7 @@ class GFMolPay extends GFPaymentAddOn {
 				$this->log_debug( __METHOD__ . "(): status 00. Result => " . print_r($action, true) );
 
 				//generate skey and compare with MOLPays response
-				if( ! $this->validate_skey( $config, $entry ) ){
+				if( ! $this->validate_skey( $config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey ) ){
 					$this->log_debug( __METHOD__ . '(): SKEY DOESNT MATCH' );
 					$action['abort_callback'] = true;							
 				}
@@ -569,11 +570,18 @@ class GFMolPay extends GFPaymentAddOn {
 		}
 
 		//generate and validate skey return from molpay
-		private function validate_skey($config, $entry, $status, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey){
+		private function validate_skey($config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey){
 
+			$vcode = $config['meta']['molpayVCode'];
+			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
+
+			$this->log_debug(__METHOD__ . "Transaction_ID: {$transaction_id} OrderID: {$orderid} Status: {$status} Merchant: {$merchant} Amount: {$amount} Currency: {$currency}");
+			$this->log_debug(__METHOD__ . "Paydate: {$paydate} Domain: {$merchant_id} Appcode: {$appcode} VCODE: {$vcode}");
 			
 			$key0 = md5( $transaction_id . $orderid . $status . $merchant . $amount . $currency );
-			$key1 = md5( $paydate . $this->get_plugin_setting('gf_molpay_merchant_id') . $key0 . $appcode . $feed['meta']['molpayVCode'] );
+			$key1 = md5( $paydate . $merchant_id . $key0 . $appcode . $vcode );
+
+			$this->log_debug(__METHOD__ . "Skey generated:{$key1}, Skey sent by MOLPay:{$skey}");
 
 			if($skey === $key1){
 				return true;
