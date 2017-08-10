@@ -12,8 +12,8 @@ class GFMolPay extends GFPaymentAddOn {
 	protected $_path = 'gravityformsmolpay/molpay.php';
 	protected $_full_path = __FILE__;
 	protected $_url = 'http://www.gravityforms.com';
-	protected $_title = 'MolPay For Gravity Forms';
-	protected $_short_title = 'MolPay';
+	protected $_title = 'MOLPay For Gravity Forms';
+	protected $_short_title = 'MOLPay';
 	protected $_supports_callbacks = true;
 	private $production_url = 'https://www.onlinepayment.com.my/MOLPay/pay/'; //add merchant id, payment channel and query strings at the end
 	private $sandbox_url = 'https://www.onlinepayment.com.my/MOLPay/pay/'; //add merchant id, payment channel and query strings at the end
@@ -52,11 +52,11 @@ class GFMolPay extends GFPaymentAddOn {
 
 		$description = '
 			<p style="text-align: left;">' .
-			esc_html__( 'Gravity Forms requires IPN to be enabled on your MolPay account.', 'gravityformsmolpay' ) .
+			esc_html__( 'Gravity Forms requires IPN to be enabled on your MOLPay account.', 'gravityformsmolpay' ) .
 			'</p>
 			<ul>
-				<li>' .  esc_html__( 'Navigate to your molpay merchant page', 'gravityformsmolpay' ) . '</li>' .
-				'<li>' . esc_html__( 'Enable IPN for Return, Callback and Notification URL', 'gravityformsmolpay' ) . '</li>' .
+				<li>' .  esc_html__( 'Navigate to your MOLPay merchant page.', 'gravityformsmolpay' ) . '</li>' .
+				'<li>' . esc_html__( 'Enable IPN for Return, Callback and Notification URL.', 'gravityformsmolpay' ) . '</li>' .
 				'<li>' . sprintf( esc_html__( 'Copy the following URL into Notification URL and Callback URL field: %s', 'gravityformsmolpay' ), '<strong>' . esc_url( add_query_arg( 'page', 'gf_molpay_ipn', get_bloginfo( 'url' ) . '/' ) ) . '</strong>' ) . '</li>' .
 			'</ul>
 			<br/>';
@@ -85,7 +85,7 @@ class GFMolPay extends GFPaymentAddOn {
 	public function feed_list_no_item_message() {
 		$settings = $this->get_plugin_settings();
 		if ( ! rgar( $settings, 'gf_molpay_merchant_id' ) ) {
-			return sprintf( esc_html__( 'To get started, please configure your %sMolPay Settings%s!', 'gravityformsmolpay' ), '<a href="' . admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug ) . '">', '</a>' );
+			return sprintf( esc_html__( 'To get started, please configure your %sMOLPay Settings%s!', 'gravityformsmolpay' ), '<a href="' . admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug ) . '">', '</a>' );
 		} else {
 			return parent::feed_list_no_item_message();
 		}
@@ -94,7 +94,7 @@ class GFMolPay extends GFPaymentAddOn {
 	public function feed_settings_fields() {
 		$default_settings = parent::feed_settings_fields();
 
-		//--add MolPay VCode field
+		//--add MOLPay VCode field
 		$fields = array(
 			array(
 				'name'     => 'molpayVCode',
@@ -102,7 +102,7 @@ class GFMolPay extends GFPaymentAddOn {
 				'type'     => 'text',
 				'class'    => 'medium',
 				'required' => true,
-				'tooltip'  => '<h6>' . esc_html__( 'MolPay Verification Code', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the molpay verification code from your merchant profile page.', 'gravityformsmolpay' )
+				'tooltip'  => '<h6>' . esc_html__( 'MOLPay Verification Code', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the molpay verification code from your merchant profile page.', 'gravityformsmolpay' )
 				)
 			);
 
@@ -270,7 +270,7 @@ class GFMolPay extends GFPaymentAddOn {
 
 			//end generate vcode_hash
 
-			$this->log_debug( __METHOD__ . "(): Sending to MolPay: {$url}" );
+			$this->log_debug( __METHOD__ . "(): Sending to MOLPay: {$url}" );
 			return $url;
 		}
 
@@ -540,7 +540,7 @@ class GFMolPay extends GFPaymentAddOn {
 				$action['amount']           = $amount;
 				$action['entry_id']         = $entry['id'];
 				$action['payment_date']     = gmdate( 'y-m-d H:i:s' );
-				$action['payment_method']	= 'MolPay';
+				$action['payment_method']	= 'MOLPay';
 				$action['ready_to_fulfill'] = ! $entry['is_fulfilled'] ? true : false;
 				
 				$this->log_debug( __METHOD__ . "(): status 00. Result => " . print_r($action, true) );
@@ -837,7 +837,7 @@ class GFMolPay extends GFPaymentAddOn {
 		}
 
 		/**
-		* Editing of the payment details should only be possible if the entry was processed by MolPay, if the payment status is Pending or Processing, and the transaction was not a subscription.
+		* Editing of the payment details should only be possible if the entry was processed by MOLPay, if the payment status is Pending or Processing, and the transaction was not a subscription.
 		*
 		* @param array $entry The current entry
 		* @param string $action The entry detail page action, edit or update.
@@ -927,7 +927,7 @@ class GFMolPay extends GFPaymentAddOn {
 			$molpay = GFMolPay::get_instance();
 			$feed   = $molpay->get_feeds( $form_id );
 
-			//Ignore IPN messages from forms that are no longer configured with the MolPay add-on
+			//Ignore IPN messages from forms that are no longer configured with the MOLPay add-on
 			if ( ! $feed ) {
 				return false;
 			}
