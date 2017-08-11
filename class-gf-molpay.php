@@ -67,9 +67,10 @@ class GFMolPay extends GFPaymentAddOn {
 				'description' => $description,
 				'fields'      => array(
 					array(
-						'name'    => 'gf_molpay_merchant_id',
-						'label'   => esc_html__( 'Merchant ID', 'gravityformsmolpay' ),
-						'type'    => 'text'
+						'name'    => 'gf_molpay_configured',
+						'label'   => esc_html__( 'MOLPay Merchant Setting', 'gravityformsmolpay' ),
+						'type'    => 'checkbox',
+						'choices' => array( array( 'label' => esc_html__( 'Confirm that you have followed the steps above', 'gravityformsmolpay' ), 'name' => 'gf_molpay_configured' ) )
 					),
 					array(
 						'type' => 'save',
@@ -84,7 +85,7 @@ class GFMolPay extends GFPaymentAddOn {
 
 	public function feed_list_no_item_message() {
 		$settings = $this->get_plugin_settings();
-		if ( ! rgar( $settings, 'gf_molpay_merchant_id' ) ) {
+		if ( ! rgar( $settings, 'gf_molpay_configured' ) ) {
 			return sprintf( esc_html__( 'To get started, please configure your %sMOLPay Settings%s!', 'gravityformsmolpay' ), '<a href="' . admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug ) . '">', '</a>' );
 		} else {
 			return parent::feed_list_no_item_message();
@@ -97,12 +98,20 @@ class GFMolPay extends GFPaymentAddOn {
 		//--add MOLPay VCode field
 		$fields = array(
 			array(
-				'name'     => 'molpayVCode',
-				'label'    => esc_html__( 'Molpay VCode ', 'gravityformsmolpay' ),
+				'name'     => 'molpayMerchantId',
+				'label'    => esc_html__( 'MOLPay Merchant ID ', 'gravityformsmolpay' ),
 				'type'     => 'text',
 				'class'    => 'medium',
 				'required' => true,
-				'tooltip'  => '<h6>' . esc_html__( 'MOLPay Verification Code', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the molpay verification code from your merchant profile page.', 'gravityformsmolpay' )
+				'tooltip'  => '<h6>' . esc_html__( 'MOLPay Merchant ID', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the MOLPay merchant ID from your merchant profile page.', 'gravityformsmolpay' )
+			),
+			array(
+				'name'     => 'molpayVCode',
+				'label'    => esc_html__( 'MOLPay VCode ', 'gravityformsmolpay' ),
+				'type'     => 'text',
+				'class'    => 'medium',
+				'required' => true,
+				'tooltip'  => '<h6>' . esc_html__( 'MOLPay Verification Code', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the MOLPay verification code from your merchant profile page.', 'gravityformsmolpay' )
 				)
 			);
 
@@ -128,7 +137,7 @@ class GFMolPay extends GFPaymentAddOn {
 					'type'     => 'text',
 					'class'    => 'medium',
 					'required' => false,
-					'tooltip'  => '<h6>' . esc_html__( 'Cancel URL', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the URL the user should be sent to should they cancel before completing their molpay payment.', 'gravityformsmolpay' )
+					'tooltip'  => '<h6>' . esc_html__( 'Cancel URL', 'gravityformsmolpay' ) . '</h6>' . esc_html__( 'Enter the URL the user should be sent to should they cancel before completing their MOLPay payment.', 'gravityformsmolpay' )
 				),
 			);
 
@@ -224,7 +233,7 @@ class GFMolPay extends GFPaymentAddOn {
 			GFAPI::update_entry_property( $entry['id'], 'payment_status', 'Processing' );
 			$url = '';
 			$vcode_hash = '';
-			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id'); //merchant id from plugin settings. maybe store per feed?
+			$merchant_id = $feed['meta']['molpayMerchantId']; //merchant id from plugin settings. maybe store per feed?
 			$amount = rgar( $submission_data, 'payment_amount' );
 			$order_id = rgar( $entry, 'id' ); //Use entry id as order id, maybe change to something else?
 			$return_url = '&returnurl=' . urlencode( $this->return_url( $form['id'], $entry['id'] ) );
@@ -569,11 +578,13 @@ class GFMolPay extends GFPaymentAddOn {
 				$action['transaction_id'] = $transaction_id;
 				$action['entry_id']       = $entry['id'];
 				$action['amount']         = $amount;
+				$action['note']           = sprintf( __( 'Payment failed. Please contact MOLPay if anything happens. Amount: %s. Transaction ID: %s.', 'gravityformsmolpay' ), $amount_formatted, $action['transaction_id'] );
+				
 
 				return $action;
 			}
 
-			if( $status === '22') { //pending
+			if( $status == '22') { //pending
 				$action['id']             = $transaction_id . '_' . $status;
 				$action['type']           = 'add_pending_payment';
 				$action['transaction_id'] = $transaction_id;
@@ -581,7 +592,7 @@ class GFMolPay extends GFPaymentAddOn {
 				$action['amount']         = $amount;
 				$action['entry_id']       = $entry['id'];
 				$amount_formatted         = GFCommon::to_money( $action['amount'], $entry['currency'] );
-				$action['note']           = sprintf( __( 'Payment is pending. Amount: %s. Transaction ID: %s. Reason: %s', 'gravityformsmolpay' ), $amount_formatted, $action['transaction_id'], $this->get_pending_reason( $pending_reason ) );
+				$action['note']           = sprintf( __( 'Payment is pending. Amount: %s. Transaction ID: %s.', 'gravityformsmolpay' ), $amount_formatted, $action['transaction_id'] );
 
 				return $action;
 			}
@@ -591,7 +602,7 @@ class GFMolPay extends GFPaymentAddOn {
 		private function validate_skey($config, $entry, $status, $merchant, $transaction_id, $amount, $currency, $paydate, $orderid, $appcode, $skey) {
 
 			$vcode = $config['meta']['molpayVCode'];
-			$merchant_id = $this->get_plugin_setting('gf_molpay_merchant_id');
+			$merchant_id = $config['meta']['molpayMerchantId'];;
 
 			$this->log_debug(__METHOD__ . "Transaction_ID: {$transaction_id} OrderID: {$orderid} Status: {$status} Merchant: {$merchant} Amount: {$amount} Currency: {$currency}");
 			$this->log_debug(__METHOD__ . "Paydate: {$paydate} Domain: {$merchant_id} Appcode: {$appcode} VCODE: {$vcode}");

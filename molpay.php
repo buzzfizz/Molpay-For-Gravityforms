@@ -1,11 +1,11 @@
 <?php
 /*
-Plugin Name: Molpay For Gravity Forms
+Plugin Name: MOLPay For Gravity Forms
 Plugin URI: http://www.gravityforms.com
-Description: Integrates Gravity Forms with Molpay.
+Description: Integrates Gravity Forms with MOLPay.
 Version: 1.0
-Author: amirulfikri
-Author URI: https://www.amirulfikri.com
+Author: Amirul Fikri
+Author URI: https://amirulfikri.com
 Text Domain: gravityformsmolpay
 Domain Path: /languages
 
